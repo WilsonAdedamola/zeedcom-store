@@ -565,7 +565,7 @@ export default function App() {
                     : "text-slate-600"
                 }`}
               >
-                👑 Admin (Owner)
+                Admin
               </button>
               <button
                 type="button"
@@ -576,7 +576,7 @@ export default function App() {
                     : "text-slate-600"
                 }`}
               >
-                🧑‍💼 Sales Staff
+               Sales Staff
               </button>
             </div>
 
