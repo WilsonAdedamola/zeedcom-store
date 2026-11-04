@@ -7,6 +7,7 @@ export default function StaffFormModal() {
   const [newStaff, setNewStaff] = useState({
     name: "",
     email: "",
+    password: "",
     storeId: stores[0]?.id || "store-1",
   });
 
@@ -25,7 +26,12 @@ export default function StaffFormModal() {
       },
     ]);
     setShowStaffModal(false);
-    setNewStaff({ name: "", email: "", storeId: stores[0]?.id || "store-1" });
+    setNewStaff({
+      name: "",
+      email: "",
+      password: "",
+      storeId: stores[0]?.id || "store-1",
+    });
   };
 
   return (
@@ -52,10 +58,20 @@ export default function StaffFormModal() {
         <input
           required
           type="email"
-          placeholder="Staff Login Email"
+          placeholder="Staff Login Email (e.g. ayo@zeedcom.ng)"
           value={newStaff.email}
           onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
           className="w-full px-3 py-2.5 border border-[#9E9E9E]/30 rounded-xl"
+        />
+        <input
+          required
+          type="text"
+          placeholder="Assign Login Password (e.g. staff123)"
+          value={newStaff.password}
+          onChange={(e) =>
+            setNewStaff({ ...newStaff, password: e.target.value })
+          }
+          className="w-full px-3 py-2.5 border border-[#9E9E9E]/30 rounded-xl font-mono"
         />
         <select
           value={newStaff.storeId}

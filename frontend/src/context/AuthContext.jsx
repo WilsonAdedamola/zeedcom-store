@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useMemo } from "react";
+import React, { createContext, useContext, useState, useMemo, useEffect } from "react";
 import {
+  ADMIN_ACCOUNT,
   INITIAL_STORES,
   INITIAL_CATEGORIES,
   INITIAL_STAFF,
@@ -9,36 +10,38 @@ import {
 
 const AuthContext = createContext({});
 
+const loadSaved = (key, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 export const AuthProvider = ({ children }) => {
-  // Navigation & Role State
-  const [isLoggedIn, setIsLoggedIn] = useState(true);
-  const [currentRole, setCurrentRole] = useState("admin"); // 'admin' | 'staff'
-  const [activePage, setActivePage] = useState("dashboard");
+  // Core Persistent Data State
+  const [stores, setStores] = useState(() => loadSaved("zeed_stores", INITIAL_STORES));
+  const [categories] = useState(INITIAL_CATEGORIES);
+  const [staffList, setStaffList] = useState(() => loadSaved("zeed_staff", INITIAL_STAFF));
+  const [inventory, setInventory] = useState(() => loadSaved("zeed_inventory", INITIAL_INVENTORY));
+  const [sales, setSales] = useState(() => loadSaved("zeed_sales", INITIAL_SALES));
+
+  // Authenticated User Session State
+  const [sessionUser, setSessionUser] = useState(() => loadSaved("zeed_session", null));
+  const [activePage, setActivePage] = useState(() =>
+    sessionUser?.role === "admin" ? "dashboard" : "pos"
+  );
   const [adminWaNumber] = useState("2348031234567");
 
-  // Core Data State
-  const [stores, setStores] = useState(INITIAL_STORES);
-  const [categories] = useState(INITIAL_CATEGORIES);
-  const [staffList, setStaffList] = useState(INITIAL_STAFF);
-  const [inventory, setInventory] = useState(INITIAL_INVENTORY);
-  const [sales, setSales] = useState(INITIAL_SALES);
-
-  // Global Filters & Active Staff Context
+  // Global Filters & Active Store Context
   const [selectedStoreFilter, setSelectedStoreFilter] = useState("ALL");
-  const [posActiveStoreId, setPosActiveStoreId] = useState("store-1");
-  const [activeStaffUser, setActiveStaffUser] = useState(INITIAL_STAFF[0]);
+  const [posActiveStoreId, setPosActiveStoreId] = useState(
+    () => sessionUser?.storeId || "store-1"
+  );
 
-  // POS Cart State
-  const [cart, setCart] = useState([
-    {
-      id: "inv-1",
-      name: "iPhone 13 Pro Max Original OLED Screen",
-      price: 85000,
-      qty: 1,
-      maxStock: 2,
-      imei: "SN-99201948",
-    },
-  ]);
+  // POS Cart State (Starts empty in production)
+  const [cart, setCart] = useState([]);
 
   // Modals State
   const [receiptModalData, setReceiptModalData] = useState(null);
@@ -47,35 +50,96 @@ export const AuthProvider = ({ children }) => {
   const [showStoreModal, setShowStoreModal] = useState(false);
   const [showStaffModal, setShowStaffModal] = useState(false);
 
+  // Sync changes to localStorage
+  useEffect(() => {
+    localStorage.setItem("zeed_stores", JSON.stringify(stores));
+  }, [stores]);
+
+  useEffect(() => {
+    localStorage.setItem("zeed_staff", JSON.stringify(staffList));
+  }, [staffList]);
+
+  useEffect(() => {
+    localStorage.setItem("zeed_inventory", JSON.stringify(inventory));
+  }, [inventory]);
+
+  useEffect(() => {
+    localStorage.setItem("zeed_sales", JSON.stringify(sales));
+  }, [sales]);
+
+  useEffect(() => {
+    if (sessionUser) {
+      localStorage.setItem("zeed_session", JSON.stringify(sessionUser));
+    } else {
+      localStorage.removeItem("zeed_session");
+    }
+  }, [sessionUser]);
+
+  const isLoggedIn = Boolean(sessionUser);
+  const currentRole = sessionUser?.role || "staff";
+  const activeStaffUser = sessionUser || {};
+
   const getStoreName = (storeId) =>
     stores.find((s) => s.id === storeId)?.name || "Unknown Store";
 
-  const handleSwitchRole = (role) => {
-    setCurrentRole(role);
-    if (role === "staff") {
-      setActivePage("pos");
-      setPosActiveStoreId(activeStaffUser.storeId);
-      setSelectedStoreFilter(activeStaffUser.storeId);
-    } else {
-      setActivePage("dashboard");
-      setSelectedStoreFilter("ALL");
-    }
-  };
+  // Production Login Function
+  const login = (email, password, loginTabRole) => {
+    const cleanEmail = email.trim().toLowerCase();
 
-  const handleChangeActiveStaff = (staffId) => {
-    const found = staffList.find((s) => s.id === staffId);
-    if (found) {
-      setActiveStaffUser(found);
-      setPosActiveStoreId(found.storeId);
-      if (currentRole === "staff") {
-        setSelectedStoreFilter(found.storeId);
+    if (loginTabRole === "admin") {
+      if (
+        cleanEmail === ADMIN_ACCOUNT.email.toLowerCase() &&
+        password === ADMIN_ACCOUNT.password
+      ) {
+        setSessionUser(ADMIN_ACCOUNT);
+        setSelectedStoreFilter("ALL");
+        setPosActiveStoreId(stores[0]?.id || "store-1");
+        setActivePage("dashboard");
+        return { success: true };
       }
+      return {
+        success: false,
+        error: "Invalid Administrator email or password.",
+      };
     }
+
+    // Staff Login Verification
+    const matchedStaff = staffList.find(
+      (s) => s.email.toLowerCase() === cleanEmail
+    );
+
+    if (!matchedStaff || (matchedStaff.password && matchedStaff.password !== password)) {
+      return {
+        success: false,
+        error: "Invalid Sales Staff email or password.",
+      };
+    }
+
+    if (!matchedStaff.active) {
+      return {
+        success: false,
+        error:
+          "Access Denied: Your staff account has been frozen by the Administrator.",
+      };
+    }
+
+    setSessionUser(matchedStaff);
+    setPosActiveStoreId(matchedStaff.storeId);
+    setSelectedStoreFilter(matchedStaff.storeId);
+    setActivePage("pos");
+    return { success: true };
   };
 
-  // Effective Store Filter (Staff are locked to their assigned branch)
+  // Production Logout Function
+  const logout = () => {
+    setSessionUser(null);
+    setCart([]);
+    setActivePage("pos");
+  };
+
+  // Effective Store Filter (Staff are strictly locked to their assigned branch)
   const effectiveStoreFilter =
-    currentRole === "staff" ? activeStaffUser.storeId : selectedStoreFilter;
+    currentRole === "staff" ? sessionUser?.storeId : selectedStoreFilter;
 
   const lowStockItems = useMemo(() => {
     return inventory.filter((item) => {
@@ -219,7 +283,9 @@ export const AuthProvider = ({ children }) => {
     )}`;
     const storeObj = stores.find((s) => s.id === posActiveStoreId);
     const actingPerson =
-      currentRole === "admin" ? "Engr. Azeez (Admin)" : activeStaffUser.name;
+      currentRole === "admin"
+        ? `${sessionUser?.name} (Admin)`
+        : sessionUser?.name || "Sales Staff";
 
     const newSaleRecord = {
       id: `sale-${Date.now()}`,
@@ -262,6 +328,16 @@ export const AuthProvider = ({ children }) => {
       })
     );
 
+    if (currentRole === "staff" && sessionUser?.id) {
+      setStaffList((prev) =>
+        prev.map((st) =>
+          st.id === sessionUser.id
+            ? { ...st, salesCount: (st.salesCount || 0) + 1 }
+            : st
+        )
+      );
+    }
+
     setSales((prev) => [newSaleRecord, ...prev]);
     setReceiptModalData(newSaleRecord);
     setCart([]);
@@ -271,7 +347,9 @@ export const AuthProvider = ({ children }) => {
   // Settle Credit Debt & Add to Weekly Sales
   const settleCreditDebt = (saleToSettle, repayMethod, repayRef) => {
     const actingPerson =
-      currentRole === "admin" ? "Engr. Azeez (Admin)" : activeStaffUser.name;
+      currentRole === "admin"
+        ? `${sessionUser?.name} (Admin)`
+        : sessionUser?.name || "Sales Staff";
     const nowStr = new Date().toLocaleString("en-NG", {
       dateStyle: "short",
       timeStyle: "short",
@@ -300,9 +378,10 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider
       value={{
         isLoggedIn,
-        setIsLoggedIn,
+        sessionUser,
+        login,
+        logout,
         currentRole,
-        setCurrentRole,
         activePage,
         setActivePage,
         adminWaNumber,
@@ -320,8 +399,6 @@ export const AuthProvider = ({ children }) => {
         posActiveStoreId,
         setPosActiveStoreId,
         activeStaffUser,
-        handleSwitchRole,
-        handleChangeActiveStaff,
         getStoreName,
         lowStockItems,
         filteredSales,

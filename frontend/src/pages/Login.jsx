@@ -1,15 +1,29 @@
-import React from "react";
-import { Smartphone, ShieldAlert } from "lucide-react";
+import React, { useState } from "react";
+import { Smartphone, ShieldAlert, Eye, EyeOff, Lock, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
-  const {
-    currentRole,
-    setCurrentRole,
-    activeStaffUser,
-    setIsLoggedIn,
-    handleSwitchRole,
-  } = useAuth();
+  const { login } = useAuth();
+  const [selectedRole, setSelectedRole] = useState("staff"); // 'staff' | 'admin'
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const handleRoleChange = (role) => {
+    setSelectedRole(role);
+    setErrorMsg("");
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setErrorMsg("");
+
+    const result = login(email, password, selectedRole);
+    if (!result.success) {
+      setErrorMsg(result.error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#212121] flex flex-col lg:flex-row">
@@ -57,7 +71,7 @@ export default function Login() {
         </div>
 
         <p className="text-xs text-[#9E9E9E]">
-          Designed for Zeedcom Multi-Branch Engineering & Gadget Stores
+          © {new Date().getFullYear()} Zeedcom Stores. All rights reserved.
         </p>
       </div>
 
@@ -68,76 +82,98 @@ export default function Login() {
             Terminal Sign In
           </h2>
           <p className="text-xs text-[#9E9E9E] mt-1">
-            Select a role below to access the Admin or Sales Staff interface
+            Select your access level and enter your assigned credentials
           </p>
 
+          {/* Staff vs Admin Selector */}
           <div className="grid grid-cols-2 gap-2 my-5 p-1 bg-[#F5F6FA] rounded-2xl border border-[#9E9E9E]/20">
             <button
               type="button"
-              onClick={() => setCurrentRole("admin")}
+              onClick={() => handleRoleChange("staff")}
               className={`py-2.5 rounded-xl text-xs font-black transition ${
-                currentRole === "admin"
-                  ? "bg-[#212121] text-[#FFFFFF] shadow"
-                  : "text-[#9E9E9E] hover:text-[#212121]"
-              }`}
-            >
-              Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentRole("staff")}
-              className={`py-2.5 rounded-xl text-xs font-black transition ${
-                currentRole === "staff"
+                selectedRole === "staff"
                   ? "bg-[#344ABF] text-[#FFFFFF] shadow"
                   : "text-[#9E9E9E] hover:text-[#212121]"
               }`}
             >
-              Sales Staff
+              Sales Staff Login
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRoleChange("admin")}
+              className={`py-2.5 rounded-xl text-xs font-black transition ${
+                selectedRole === "admin"
+                  ? "bg-[#212121] text-[#FFFFFF] shadow"
+                  : "text-[#9E9E9E] hover:text-[#212121]"
+              }`}
+            >
+              Admin Login
             </button>
           </div>
 
-          <div className="space-y-4">
+          {errorMsg && (
+            <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="text-xs font-bold uppercase text-[#9E9E9E]">
-                Account Email
+                Email Address
               </label>
               <input
                 type="email"
-                readOnly
-                value={
-                  currentRole === "admin"
-                    ? "engr.azeez@zeedcom.ng"
-                    : activeStaffUser.email
+                required
+                placeholder={
+                  selectedRole === "admin"
+                    ? "admin@zeedcom.ng"
+                    : "cashier@zeedcom.ng"
                 }
-                className="w-full mt-1 px-4 py-3 bg-[#F5F6FA] border border-[#9E9E9E]/30 rounded-xl text-sm font-semibold text-[#212121]"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold uppercase text-[#9E9E9E]">
-                Security Password
-              </label>
-              <input
-                type="password"
-                readOnly
-                value="••••••••••••"
-                className="w-full mt-1 px-4 py-3 bg-[#F5F6FA] border border-[#9E9E9E]/30 rounded-xl text-sm font-semibold text-[#212121]"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full mt-1 px-4 py-3 bg-[#F5F6FA] border border-[#9E9E9E]/30 rounded-xl text-sm font-semibold text-[#212121] focus:outline-none focus:border-[#344ABF]"
               />
             </div>
 
+            <div>
+              <label className="text-xs font-bold uppercase text-[#9E9E9E]">
+                Password
+              </label>
+              <div className="relative mt-1">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 pr-11 bg-[#F5F6FA] border border-[#9E9E9E]/30 rounded-xl text-sm font-semibold text-[#212121] focus:outline-none focus:border-[#344ABF]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-3.5 text-[#9E9E9E] hover:text-[#212121]"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
             <button
-              onClick={() => {
-                setIsLoggedIn(true);
-                handleSwitchRole(currentRole);
-              }}
-              className="w-full py-3.5 bg-[#344ABF] hover:opacity-95 text-[#FFFFFF] font-black rounded-xl text-sm shadow-lg transition"
+              type="submit"
+              className="w-full py-3.5 bg-[#344ABF] hover:opacity-95 text-[#FFFFFF] font-black rounded-xl text-sm shadow-lg transition flex items-center justify-center gap-2"
             >
-              Enter{" "}
-              {currentRole === "admin"
-                ? "Admin Command Center"
-                : "POS Sales Terminal"}{" "}
-              →
+              <Lock className="w-4 h-4" />
+              <span>
+                Sign In as {selectedRole === "admin" ? "Administrator" : "Sales Staff"}
+              </span>
             </button>
-          </div>
+          </form>
         </div>
       </div>
     </div>

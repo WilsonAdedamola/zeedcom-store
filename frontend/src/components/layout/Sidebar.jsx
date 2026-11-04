@@ -8,24 +8,22 @@ import {
   Store,
   FileText,
   LogOut,
+  ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 export default function Sidebar() {
   const {
     currentRole,
+    sessionUser,
     activePage,
     setActivePage,
     stores,
-    staffList,
-    activeStaffUser,
-    handleSwitchRole,
-    handleChangeActiveStaff,
     getStoreName,
     unpaidCreditSales,
     lowStockItems,
     adminWaNumber,
-    setIsLoggedIn,
+    logout,
   } = useAuth();
 
   const navLinks =
@@ -78,66 +76,24 @@ export default function Sidebar() {
           </div>
         </div>
 
-        {/* Role & Staff Switcher */}
+        {/* Authenticated User Profile Summary */}
         <div className="p-4 border-b border-[#9E9E9E]/20 bg-[#000000]/20">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#9E9E9E] block mb-1.5">
-            UI Preview Role Switcher
-          </span>
-          <div className="grid grid-cols-2 gap-1.5 bg-[#212121] p-1 rounded-xl border border-[#9E9E9E]/30">
-            <button
-              onClick={() => handleSwitchRole("admin")}
-              className={`py-1.5 rounded-lg text-xs font-bold transition ${
-                currentRole === "admin"
-                  ? "bg-[#344ABF] text-[#FFFFFF]"
-                  : "text-[#9E9E9E] hover:text-[#FFFFFF]"
-              }`}
-            >
-              Admin View
-            </button>
-            <button
-              onClick={() => handleSwitchRole("staff")}
-              className={`py-1.5 rounded-lg text-xs font-bold transition ${
-                currentRole === "staff"
-                  ? "bg-[#344ABF] text-[#FFFFFF]"
-                  : "text-[#9E9E9E] hover:text-[#FFFFFF]"
-              }`}
-            >
-              Staff View
-            </button>
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#344ABF]">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>
+              {currentRole === "admin"
+                ? "Master Administrator"
+                : "Sales Attendant"}
+            </span>
           </div>
-
-          {currentRole === "staff" ? (
-            <div className="mt-3">
-              <label className="text-[10px] text-[#9E9E9E] uppercase font-bold block">
-                Logged-In Attendant:
-              </label>
-              <select
-                value={activeStaffUser.id}
-                onChange={(e) => handleChangeActiveStaff(e.target.value)}
-                className="w-full mt-1 bg-[#212121] border border-[#9E9E9E]/40 rounded-lg px-2 py-1.5 text-xs font-bold text-[#FFFFFF]"
-              >
-                {staffList
-                  .filter((s) => s.active)
-                  .map((stf) => (
-                    <option key={stf.id} value={stf.id}>
-                      {stf.name} ({getStoreName(stf.storeId).split(":")[0]})
-                    </option>
-                  ))}
-              </select>
-              <p className="text-[11px] text-[#9E9E9E] mt-1 truncate">
-                {getStoreName(activeStaffUser.storeId)}
-              </p>
-            </div>
-          ) : (
-            <>
-              <p className="text-xs font-bold text-[#FFFFFF] mt-3 truncate">
-                Engr. Azeez (Master Admin)
-              </p>
-              <p className="text-[11px] text-[#9E9E9E] truncate">
-                All {stores.length} Stores Access
-              </p>
-            </>
-          )}
+          <p className="text-sm font-black text-[#FFFFFF] mt-1 truncate">
+            {sessionUser?.name}
+          </p>
+          <p className="text-[11px] text-[#9E9E9E] mt-0.5 truncate">
+            {currentRole === "admin"
+              ? `All ${stores.length} Stores Access`
+              : getStoreName(sessionUser?.storeId)}
+          </p>
         </div>
 
         {/* Navigation Links */}
@@ -187,11 +143,11 @@ export default function Sidebar() {
           </p>
         </div>
         <button
-          onClick={() => setIsLoggedIn(false)}
+          onClick={logout}
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#FFFFFF]/10 hover:bg-red-600 text-[#FFFFFF] text-xs font-bold transition"
         >
           <LogOut className="w-4 h-4" />
-          <span>Lock / Sign Out</span>
+          <span>Sign Out Session</span>
         </button>
       </div>
     </aside>

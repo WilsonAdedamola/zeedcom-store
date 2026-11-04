@@ -1,3 +1,11 @@
+export const ADMIN_ACCOUNT = {
+  id: "admin-1",
+  name: "Engr. Azeez",
+  email: "admin@zeedcom.ng",
+  password: "password123",
+  role: "admin",
+};
+
 export const INITIAL_STORES = [
   {
     id: "store-1",
@@ -35,6 +43,7 @@ export const INITIAL_STAFF = [
     id: "stf-1",
     name: "Tunde Bakare",
     email: "tunde@zeedcom.ng",
+    password: "staff123",
     role: "staff",
     storeId: "store-1",
     active: true,
@@ -44,6 +53,7 @@ export const INITIAL_STAFF = [
     id: "stf-2",
     name: "Sadiq Yusuf",
     email: "sadiq@zeedcom.ng",
+    password: "staff123",
     role: "staff",
     storeId: "store-2",
     active: true,
@@ -53,6 +63,7 @@ export const INITIAL_STAFF = [
     id: "stf-3",
     name: "Blessing Adeyemi",
     email: "blessing@zeedcom.ng",
+    password: "staff123",
     role: "staff",
     storeId: "store-1",
     active: true,
@@ -62,6 +73,7 @@ export const INITIAL_STAFF = [
     id: "stf-4",
     name: "Chinedu Okafor",
     email: "chinedu@zeedcom.ng",
+    password: "staff123",
     role: "staff",
     storeId: "store-3",
     active: false,
