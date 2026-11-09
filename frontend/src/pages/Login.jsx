@@ -1,27 +1,42 @@
 import React, { useState } from "react";
-import { Smartphone, ShieldAlert, Eye, EyeOff, Lock, AlertCircle } from "lucide-react";
+import {
+  Smartphone,
+  ShieldAlert,
+  Eye,
+  EyeOff,
+  Lock,
+  AlertCircle,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
   const { login } = useAuth();
-  const [selectedRole, setSelectedRole] = useState("staff"); // 'staff' | 'admin'
+  const [selectedRole, setSelectedRole] = useState("staff");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const handleRoleChange = (role) => {
     setSelectedRole(role);
     setErrorMsg("");
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg("");
+    setSubmitting(true);
 
-    const result = login(email, password, selectedRole);
-    if (!result.success) {
-      setErrorMsg(result.error);
+    try {
+      const result = await login(email, password, selectedRole);
+      if (!result.success) {
+        setErrorMsg(result.error);
+      }
+    } catch (err) {
+      setErrorMsg(err.message || "Unable to connect to authentication server.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -85,7 +100,6 @@ export default function Login() {
             Select your access level and enter your assigned credentials
           </p>
 
-          {/* Staff vs Admin Selector */}
           <div className="grid grid-cols-2 gap-2 my-5 p-1 bg-[#F5F6FA] rounded-2xl border border-[#9E9E9E]/20">
             <button
               type="button"
@@ -166,11 +180,16 @@ export default function Login() {
 
             <button
               type="submit"
-              className="w-full py-3.5 bg-[#344ABF] hover:opacity-95 text-[#FFFFFF] font-black rounded-xl text-sm shadow-lg transition flex items-center justify-center gap-2"
+              disabled={submitting}
+              className="w-full py-3.5 bg-[#344ABF] hover:opacity-95 disabled:opacity-50 text-[#FFFFFF] font-black rounded-xl text-sm shadow-lg transition flex items-center justify-center gap-2"
             >
               <Lock className="w-4 h-4" />
               <span>
-                Sign In as {selectedRole === "admin" ? "Administrator" : "Sales Staff"}
+                {submitting
+                  ? "Verifying Credentials..."
+                  : `Sign In as ${
+                      selectedRole === "admin" ? "Administrator" : "Sales Staff"
+                    }`}
               </span>
             </button>
           </form>

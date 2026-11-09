@@ -13,7 +13,12 @@ export default function InventoryManager() {
     setSelectedStoreFilter,
     getStoreName,
     setShowProductModal,
+    setShowCategoryModal,
   } = useAuth();
+
+  const visibleInventory = inventory.filter(
+    (i) => selectedStoreFilter === "ALL" || i.storeId === selectedStoreFilter
+  );
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-5">
@@ -23,11 +28,11 @@ export default function InventoryManager() {
             Multi-Store Stock & Categories
           </h1>
           <p className="text-xs sm:text-sm text-[#9E9E9E]">
-            Monitor stock across branches, set low-stock alert limits, and add
-            new products
+            Monitor stock across branches, manage categories, and add new
+            products
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={selectedStoreFilter}
             onChange={(e) => setSelectedStoreFilter(e.target.value)}
@@ -40,6 +45,14 @@ export default function InventoryManager() {
               </option>
             ))}
           </select>
+
+          <button
+            onClick={() => setShowCategoryModal(true)}
+            className="px-4 py-2.5 bg-[#212121] text-[#FFFFFF] rounded-xl text-xs font-black shadow-sm"
+          >
+            + Manage Categories
+          </button>
+
           <button
             onClick={() => setShowProductModal(true)}
             className="px-4 py-2.5 bg-[#344ABF] text-[#FFFFFF] rounded-xl text-xs font-black shadow-sm"
@@ -79,13 +92,15 @@ export default function InventoryManager() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#9E9E9E]/20">
-              {inventory
-                .filter(
-                  (i) =>
-                    selectedStoreFilter === "ALL" ||
-                    i.storeId === selectedStoreFilter
-                )
-                .map((item) => {
+              {visibleInventory.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="py-10 text-center text-[#9E9E9E]">
+                    No inventory items recorded yet. Click "+ Add / Restock
+                    Product" to add stock.
+                  </td>
+                </tr>
+              ) : (
+                visibleInventory.map((item) => {
                   const isLow = item.quantity <= item.threshold;
                   return (
                     <tr
@@ -127,7 +142,8 @@ export default function InventoryManager() {
                       </td>
                     </tr>
                   );
-                })}
+                })
+              )}
             </tbody>
           </table>
         </div>

@@ -8,6 +8,8 @@ import RepayDebtModal from "./components/modals/RepayDebtModal";
 import ProductFormModal from "./components/modals/ProductFormModal";
 import StoreFormModal from "./components/modals/StoreFormModal";
 import StaffFormModal from "./components/modals/StaffFormModal";
+import CategoryFormModal from "./components/modals/CategoryFormModal";
+import TargetFormModal from "./components/modals/TargetFormModal";
 import Login from "./pages/Login";
 import AdminDashboard from "./pages/AdminDashboard";
 import POSTerminal from "./pages/POSTerminal";
@@ -17,12 +19,19 @@ import StoresAndStaff from "./pages/StoresAndStaff";
 import SalesAudit from "./pages/SalesAudit";
 
 function AppShell() {
-  const { isLoggedIn, currentRole, activePage } = useAuth();
+  const { isLoggedIn, dbLoading, currentRole, activePage } = useAuth();
+
+  if (dbLoading) {
+    return (
+      <div className="min-h-screen bg-[#212121] text-[#FFFFFF] flex items-center justify-center font-black text-sm">
+        Connecting to Zeedcom Stores Database...
+      </div>
+    );
+  }
 
   if (!isLoggedIn) {
     return <Login />;
   }
-
 
   return (
     <div className="min-h-screen bg-[#F5F6FA] flex flex-col lg:flex-row text-[#212121]">
@@ -52,6 +61,8 @@ function AppShell() {
       <ProductFormModal />
       <StoreFormModal />
       <StaffFormModal />
+      <CategoryFormModal />
+      <TargetFormModal />
     </div>
   );
 }

@@ -6,7 +6,7 @@ export default function StoresAndStaff() {
   const {
     stores,
     staffList,
-    setStaffList,
+    toggleStaffStatus,
     getStoreName,
     setShowStoreModal,
     setShowStaffModal,
@@ -102,13 +102,7 @@ export default function StoresAndStaff() {
                   {stf.salesCount} Sales Recorded
                 </span>
                 <button
-                  onClick={() =>
-                    setStaffList((prev) =>
-                      prev.map((x) =>
-                        x.id === stf.id ? { ...x, active: !x.active } : x
-                      )
-                    )
-                  }
+                  onClick={() => toggleStaffStatus(stf.id, stf.active)}
                   className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 ${
                     stf.active
                       ? "bg-red-50 text-red-700 hover:bg-red-100"

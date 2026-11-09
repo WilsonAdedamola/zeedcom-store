@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Search, Plus, Minus, HandCoins, X } from "lucide-react";
+import { Search, Plus, Minus, HandCoins, X, Target } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { formatNaira } from "../utils/formatters";
 
@@ -14,6 +14,7 @@ export default function POSTerminal() {
     activeStaffUser,
     getStoreName,
     posStoreUnpaidCredits,
+    storeTargetMetrics,
     setActivePage,
     cart,
     setCart,
@@ -31,20 +32,34 @@ export default function POSTerminal() {
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [paymentRef, setPaymentRef] = useState("");
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleCompleteSale = (e) => {
+  const activeTarget = storeTargetMetrics[posActiveStoreId] || {
+    collected: 0,
+    target: 0,
+    percentage: 0,
+  };
+
+  const handleCompleteSale = async (e) => {
     e.preventDefault();
-    if (paymentMethod === "Credit" && (!customerName.trim() || !customerPhone.trim())) {
-      alert("Customer Name and Phone Number are required when selling on Credit!");
+    if (
+      paymentMethod === "Credit" &&
+      (!customerName.trim() || !customerPhone.trim())
+    ) {
+      alert(
+        "Customer Name and Phone Number are required when selling on Credit!"
+      );
       return;
     }
 
-    const ok = recordSaleTransaction({
+    setSubmitting(true);
+    const ok = await recordSaleTransaction({
       customerName,
       customerPhone,
       paymentMethod,
       paymentRef,
     });
+    setSubmitting(false);
 
     if (ok) {
       setCustomerName("");
@@ -54,68 +69,100 @@ export default function POSTerminal() {
     }
   };
 
+  const storeProducts = inventory
+    .filter((i) => i.storeId === posActiveStoreId)
+    .filter((i) => posCategory === "ALL" || i.category === posCategory)
+    .filter(
+      (i) =>
+        i.name.toLowerCase().includes(posSearch.toLowerCase()) ||
+        i.sku.toLowerCase().includes(posSearch.toLowerCase())
+    );
+
   return (
     <div className="flex flex-col lg:flex-row min-h-[calc(100vh-64px)]">
       {/* Left 65% Product Grid */}
       <div className="flex-1 p-4 sm:p-6 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#FFFFFF] p-4 rounded-2xl border border-[#9E9E9E]/30 shadow-sm">
-          <div>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-[#344ABF]/10 text-[#344ABF] rounded">
-              Active Cashier Session
-            </span>
-            <h1 className="text-lg font-black text-[#212121] mt-1">
-              {getStoreName(posActiveStoreId)}
-            </h1>
-            <p className="text-xs text-[#9E9E9E]">
-              Salesperson on Duty:{" "}
-              <strong className="text-[#212121]">
-                {currentRole === "admin"
-                  ? "Engr. Azeez (Admin)"
-                  : activeStaffUser.name}
-              </strong>
-            </p>
+        <div className="bg-[#FFFFFF] p-4 rounded-2xl border border-[#9E9E9E]/30 shadow-sm space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-[#344ABF]/10 text-[#344ABF] rounded">
+                Active Cashier Session
+              </span>
+              <h1 className="text-lg font-black text-[#212121] mt-1">
+                {getStoreName(posActiveStoreId)}
+              </h1>
+              <p className="text-xs text-[#9E9E9E]">
+                Salesperson on Duty:{" "}
+                <strong className="text-[#212121]">
+                  {activeStaffUser?.name}
+                </strong>
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setActivePage("credit")}
+                className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-400 text-left hover:bg-amber-100 transition"
+              >
+                <HandCoins className="w-5 h-5 text-amber-700 shrink-0" />
+                <div>
+                  <span className="text-[10px] font-black uppercase text-amber-800 block">
+                    Store Credit Out ({posStoreUnpaidCredits.length} Bills)
+                  </span>
+                  <span className="text-xs font-black text-[#212121]">
+                    {formatNaira(
+                      posStoreUnpaidCredits.reduce(
+                        (a, b) => a + b.totalAmount,
+                        0
+                      )
+                    )}{" "}
+                    • View / Settle →
+                  </span>
+                </div>
+              </button>
+
+              {currentRole === "admin" && stores.length > 0 && (
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-[#9E9E9E] block">
+                    Switch POS Branch
+                  </label>
+                  <select
+                    value={posActiveStoreId}
+                    onChange={(e) => {
+                      setPosActiveStoreId(e.target.value);
+                      setCart([]);
+                    }}
+                    className="mt-1 px-3 py-2 bg-[#F5F6FA] border border-[#9E9E9E]/30 rounded-xl text-xs font-bold text-[#212121]"
+                  >
+                    {stores.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setActivePage("credit")}
-              className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-400 text-left hover:bg-amber-100 transition"
-            >
-              <HandCoins className="w-5 h-5 text-amber-700 shrink-0" />
-              <div>
-                <span className="text-[10px] font-black uppercase text-amber-800 block">
-                  Store Credit Out ({posStoreUnpaidCredits.length} Bills)
-                </span>
-                <span className="text-xs font-black text-[#212121]">
-                  {formatNaira(
-                    posStoreUnpaidCredits.reduce((a, b) => a + b.totalAmount, 0)
-                  )}{" "}
-                  • View / Settle →
-                </span>
-              </div>
-            </button>
-
-            {currentRole === "admin" && (
-              <div>
-                <label className="text-[10px] font-bold uppercase text-[#9E9E9E] block">
-                  Switch POS Branch
-                </label>
-                <select
-                  value={posActiveStoreId}
-                  onChange={(e) => {
-                    setPosActiveStoreId(e.target.value);
-                    setCart([]);
-                  }}
-                  className="mt-1 px-3 py-2 bg-[#F5F6FA] border border-[#9E9E9E]/30 rounded-xl text-xs font-bold text-[#212121]"
-                >
-                  {stores.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+          {/* Weekly Store Target Progress Bar (Visible on Sales Dashboard) */}
+          <div className="p-3 bg-[#F5F6FA] rounded-xl border border-[#9E9E9E]/20 space-y-1.5">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="flex items-center gap-1.5 text-[#212121]">
+                <Target className="w-4 h-4 text-[#344ABF]" />
+                <span>Store Weekly Sales Target Progress</span>
+              </span>
+              <span className="text-[#344ABF] font-black">
+                {formatNaira(activeTarget.collected)} /{" "}
+                {formatNaira(activeTarget.target)} ({activeTarget.percentage}%)
+              </span>
+            </div>
+            <div className="w-full bg-[#FFFFFF] h-2.5 rounded-full overflow-hidden border border-[#9E9E9E]/20">
+              <div
+                className="bg-[#344ABF] h-full transition-all duration-500 rounded-full"
+                style={{ width: `${activeTarget.percentage}%` }}
+              />
+            </div>
           </div>
         </div>
 
@@ -159,16 +206,13 @@ export default function POSTerminal() {
         </div>
 
         {/* Product Cards Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {inventory
-            .filter((i) => i.storeId === posActiveStoreId)
-            .filter((i) => posCategory === "ALL" || i.category === posCategory)
-            .filter(
-              (i) =>
-                i.name.toLowerCase().includes(posSearch.toLowerCase()) ||
-                i.sku.toLowerCase().includes(posSearch.toLowerCase())
-            )
-            .map((item) => {
+        {storeProducts.length === 0 ? (
+          <div className="bg-[#FFFFFF] border border-[#9E9E9E]/30 rounded-2xl p-12 text-center text-xs text-[#9E9E9E]">
+            No products found in this store branch yet.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {storeProducts.map((item) => {
               const inCart = cart.find((c) => c.id === item.id);
               const isLow = item.quantity <= item.threshold;
               const out = item.quantity <= 0;
@@ -222,7 +266,8 @@ export default function POSTerminal() {
                 </button>
               );
             })}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* MOBILE STICKY BOTTOM CHECKOUT BAR */}
@@ -400,14 +445,16 @@ export default function POSTerminal() {
 
             <button
               type="submit"
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || submitting}
               className={`w-full py-3.5 disabled:bg-[#9E9E9E]/40 font-black rounded-xl text-sm shadow-lg transition ${
                 paymentMethod === "Credit"
                   ? "bg-amber-500 hover:bg-amber-600 text-[#212121]"
                   : "bg-[#344ABF] hover:opacity-95 text-[#FFFFFF]"
               }`}
             >
-              {paymentMethod === "Credit"
+              {submitting
+                ? "Recording Transaction..."
+                : paymentMethod === "Credit"
                 ? "⚠️ Record Credit Sale & Alert Admin"
                 : "📲 Complete Sale & Send WhatsApp"}
             </button>

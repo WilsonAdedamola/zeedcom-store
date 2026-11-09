@@ -1,46 +1,115 @@
-import React, { createContext, useContext, useState, useMemo, useEffect } from "react";
-import {
-  ADMIN_ACCOUNT,
-  INITIAL_STORES,
-  INITIAL_CATEGORIES,
-  INITIAL_STAFF,
-  INITIAL_INVENTORY,
-  INITIAL_SALES,
-} from "../utils/mockData";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useMemo,
+  useEffect,
+  useCallback,
+} from "react";
+import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 
 const AuthContext = createContext({});
 
-const loadSaved = (key, fallback) => {
-  try {
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : fallback;
-  } catch {
-    return fallback;
-  }
+// Helper: Checks if a timestamp falls within the current week (Monday 00:00 to Sunday 23:59)
+const isDateInCurrentWeek = (isoDateString) => {
+  if (!isoDateString) return true;
+  const date = new Date(isoDateString);
+  if (isNaN(date.getTime())) return true;
+
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 (Sun) to 6 (Sat)
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() + diffToMonday);
+  startOfWeek.setHours(0, 0, 0, 0);
+
+  return date >= startOfWeek;
 };
 
-export const AuthProvider = ({ children }) => {
-  // Core Persistent Data State
-  const [stores, setStores] = useState(() => loadSaved("zeed_stores", INITIAL_STORES));
-  const [categories] = useState(INITIAL_CATEGORIES);
-  const [staffList, setStaffList] = useState(() => loadSaved("zeed_staff", INITIAL_STAFF));
-  const [inventory, setInventory] = useState(() => loadSaved("zeed_inventory", INITIAL_INVENTORY));
-  const [sales, setSales] = useState(() => loadSaved("zeed_sales", INITIAL_SALES));
+const mapStoreRow = (r) => ({
+  id: r.id,
+  name: r.name,
+  location: r.location,
+  phone: r.phone,
+  manager: r.manager,
+  weeklyTarget: Number(r.weekly_target || 0),
+});
 
-  // Authenticated User Session State
-  const [sessionUser, setSessionUser] = useState(() => loadSaved("zeed_session", null));
+const mapStaffRow = (r) => ({
+  id: r.id,
+  name: r.name,
+  email: r.email,
+  role: r.role,
+  storeId: r.store_id,
+  active: r.active,
+  salesCount: Number(r.sales_count || 0),
+});
+
+const mapInventoryRow = (r) => ({
+  id: r.id,
+  sku: r.sku,
+  name: r.name,
+  category: r.category,
+  storeId: r.store_id,
+  costPrice: Number(r.cost_price || 0),
+  sellingPrice: Number(r.selling_price || 0),
+  quantity: Number(r.quantity || 0),
+  threshold: Number(r.threshold || 5),
+  trackImei: Boolean(r.track_imei),
+});
+
+const mapSaleRow = (r) => ({
+  id: r.id,
+  receiptNo: r.receipt_no,
+  storeId: r.store_id,
+  staffId: r.staff_id,
+  staffName: r.staff_name,
+  customerName: r.customer_name,
+  customerPhone: r.customer_phone,
+  paymentMethod: r.payment_method,
+  paymentRef: r.payment_ref,
+  totalAmount: Number(r.total_amount || 0),
+  timestamp: r.timestamp_label,
+  isCredit: Boolean(r.is_credit),
+  creditStatus: r.credit_status,
+  creditNote: r.credit_note || "",
+  repaidAt: r.repaid_at,
+  repaidBy: r.repaid_by,
+  paidAt: r.paid_at || r.created_at,
+  createdAt: r.created_at,
+  items: Array.isArray(r.items) ? r.items : [],
+});
+
+export const AuthProvider = ({ children }) => {
+  // Pure Database State (Starts empty, populated by Supabase)
+  const [stores, setStores] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [staffList, setStaffList] = useState([]);
+  const [inventory, setInventory] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [dbLoading, setDbLoading] = useState(true);
+
+  const [sessionUser, setSessionUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem("zeed_session");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [activePage, setActivePage] = useState(() =>
     sessionUser?.role === "admin" ? "dashboard" : "pos"
   );
-  const [adminWaNumber] = useState("2348031234567");
-
-  // Global Filters & Active Store Context
-  const [selectedStoreFilter, setSelectedStoreFilter] = useState("ALL");
-  const [posActiveStoreId, setPosActiveStoreId] = useState(
-    () => sessionUser?.storeId || "store-1"
+  const [adminWaNumber] = useState(
+    import.meta.env.VITE_ADMIN_WHATSAPP_NUMBER || "2348031234567"
   );
 
-  // POS Cart State (Starts empty in production)
+  const [selectedStoreFilter, setSelectedStoreFilter] = useState("ALL");
+  const [posActiveStoreId, setPosActiveStoreId] = useState(
+    () => sessionUser?.storeId || ""
+  );
   const [cart, setCart] = useState([]);
 
   // Modals State
@@ -49,23 +118,84 @@ export const AuthProvider = ({ children }) => {
   const [showProductModal, setShowProductModal] = useState(false);
   const [showStoreModal, setShowStoreModal] = useState(false);
   const [showStaffModal, setShowStaffModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showTargetModal, setShowTargetModal] = useState(false);
 
-  // Sync changes to localStorage
-  useEffect(() => {
-    localStorage.setItem("zeed_stores", JSON.stringify(stores));
-  }, [stores]);
+  const fetchAllSupabaseData = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) {
+      setDbLoading(false);
+      return;
+    }
+
+    try {
+      const [
+        { data: storesData },
+        { data: catData },
+        { data: staffData },
+        { data: invData },
+        { data: salesData },
+      ] = await Promise.all([
+        supabase.from("stores").select("*").order("created_at", { ascending: true }),
+        supabase.from("categories").select("*").order("id", { ascending: true }),
+        supabase.from("staff_users").select("*").order("created_at", { ascending: true }),
+        supabase.from("inventory").select("*").order("updated_at", { ascending: false }),
+        supabase.from("sales").select("*").order("created_at", { ascending: false }),
+      ]);
+
+      const mappedStores = (storesData || []).map(mapStoreRow);
+      setStores(mappedStores);
+
+      // Ensure POS has a valid active store selected for Admin
+      if (mappedStores.length > 0 && !posActiveStoreId) {
+        setPosActiveStoreId(
+          sessionUser?.role === "staff"
+            ? sessionUser.storeId
+            : mappedStores[0].id
+        );
+      }
+
+      setCategories((catData || []).map((c) => c.name));
+
+      const mappedStaff = (staffData || [])
+        .filter((u) => u.role === "staff")
+        .map(mapStaffRow);
+      setStaffList(mappedStaff);
+
+      // Auto-terminate session if Admin freezes or deletes a logged-in staff account
+      if (sessionUser?.role === "staff") {
+        const currentInDb = mappedStaff.find((u) => u.id === sessionUser.id);
+        if (!currentInDb || !currentInDb.active) {
+          setSessionUser(null);
+          localStorage.removeItem("zeed_session");
+          alert("Your session has been deactivated by the Administrator.");
+        }
+      }
+
+      setInventory((invData || []).map(mapInventoryRow));
+      setSales((salesData || []).map(mapSaleRow));
+    } catch (err) {
+      console.error("Error syncing with Supabase:", err);
+    } finally {
+      setDbLoading(false);
+    }
+  }, [posActiveStoreId, sessionUser]);
 
   useEffect(() => {
-    localStorage.setItem("zeed_staff", JSON.stringify(staffList));
-  }, [staffList]);
+    fetchAllSupabaseData();
 
-  useEffect(() => {
-    localStorage.setItem("zeed_inventory", JSON.stringify(inventory));
-  }, [inventory]);
+    if (!isSupabaseConfigured || !supabase) return;
 
-  useEffect(() => {
-    localStorage.setItem("zeed_sales", JSON.stringify(sales));
-  }, [sales]);
+    const channel = supabase
+      .channel("zeedcom-live-db")
+      .on("postgres_changes", { event: "*", schema: "public" }, () => {
+        fetchAllSupabaseData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchAllSupabaseData]);
 
   useEffect(() => {
     if (sessionUser) {
@@ -80,64 +210,65 @@ export const AuthProvider = ({ children }) => {
   const activeStaffUser = sessionUser || {};
 
   const getStoreName = (storeId) =>
-    stores.find((s) => s.id === storeId)?.name || "Unknown Store";
+    stores.find((s) => s.id === storeId)?.name || "Unassigned Store";
 
-  // Production Login Function
-  const login = (email, password, loginTabRole) => {
+  // Production Login (Strictly against Supabase staff_users table)
+  const login = async (email, password, loginTabRole) => {
+    if (!isSupabaseConfigured || !supabase) {
+      return {
+        success: false,
+        error: "Database connection missing. Check VITE_SUPABASE_URL in .env",
+      };
+    }
+
     const cleanEmail = email.trim().toLowerCase();
 
-    if (loginTabRole === "admin") {
-      if (
-        cleanEmail === ADMIN_ACCOUNT.email.toLowerCase() &&
-        password === ADMIN_ACCOUNT.password
-      ) {
-        setSessionUser(ADMIN_ACCOUNT);
-        setSelectedStoreFilter("ALL");
-        setPosActiveStoreId(stores[0]?.id || "store-1");
-        setActivePage("dashboard");
-        return { success: true };
-      }
+    const { data: userRow, error } = await supabase
+      .from("staff_users")
+      .select("*")
+      .ilike("email", cleanEmail)
+      .eq("role", loginTabRole)
+      .maybeSingle();
+
+    if (error || !userRow || userRow.password !== password) {
       return {
         success: false,
-        error: "Invalid Administrator email or password.",
+        error: `Invalid ${
+          loginTabRole === "admin" ? "Administrator" : "Sales Staff"
+        } email or password.`,
       };
     }
 
-    // Staff Login Verification
-    const matchedStaff = staffList.find(
-      (s) => s.email.toLowerCase() === cleanEmail
-    );
-
-    if (!matchedStaff || (matchedStaff.password && matchedStaff.password !== password)) {
-      return {
-        success: false,
-        error: "Invalid Sales Staff email or password.",
-      };
-    }
-
-    if (!matchedStaff.active) {
+    if (!userRow.active) {
       return {
         success: false,
         error:
-          "Access Denied: Your staff account has been frozen by the Administrator.",
+          "Access Denied: Your account has been frozen by the Administrator.",
       };
     }
 
-    setSessionUser(matchedStaff);
-    setPosActiveStoreId(matchedStaff.storeId);
-    setSelectedStoreFilter(matchedStaff.storeId);
-    setActivePage("pos");
+    const mappedUser = mapStaffRow(userRow);
+    setSessionUser(mappedUser);
+
+    if (mappedUser.role === "admin") {
+      setSelectedStoreFilter("ALL");
+      setPosActiveStoreId(stores[0]?.id || "");
+      setActivePage("dashboard");
+    } else {
+      setPosActiveStoreId(mappedUser.storeId);
+      setSelectedStoreFilter(mappedUser.storeId);
+      setActivePage("pos");
+    }
+
     return { success: true };
   };
 
-  // Production Logout Function
   const logout = () => {
     setSessionUser(null);
     setCart([]);
     setActivePage("pos");
   };
 
-  // Effective Store Filter (Staff are strictly locked to their assigned branch)
   const effectiveStoreFilter =
     currentRole === "staff" ? sessionUser?.storeId : selectedStoreFilter;
 
@@ -166,24 +297,56 @@ export const AuthProvider = ({ children }) => {
     );
   }, [sales, posActiveStoreId]);
 
-  const kpis = useMemo(() => {
-    const paidSales = filteredSales.filter((s) => s.creditStatus === "PAID");
+  // Per-Store Weekly Target Progress (Used on both Admin Cards & POS Terminal Header)
+  const storeTargetMetrics = useMemo(() => {
+    const map = {};
+    stores.forEach((st) => {
+      const weeklyPaidForStore = sales
+        .filter(
+          (s) =>
+            s.storeId === st.id &&
+            s.creditStatus === "PAID" &&
+            isDateInCurrentWeek(s.paidAt)
+        )
+        .reduce((sum, s) => sum + s.totalAmount, 0);
 
-    const weeklyCollectedRev = paidSales.reduce(
+      const target = st.weeklyTarget || 0;
+      const percentage =
+        target > 0
+          ? Math.min(100, Math.round((weeklyPaidForStore / target) * 100))
+          : 0;
+
+      map[st.id] = {
+        collected: weeklyPaidForStore,
+        target,
+        percentage,
+        remaining: Math.max(0, target - weeklyPaidForStore),
+      };
+    });
+    return map;
+  }, [stores, sales]);
+
+  // Dashboard & Store KPIs (Calculated for the Current Week)
+  const kpis = useMemo(() => {
+    const weeklyPaidSales = filteredSales.filter(
+      (s) => s.creditStatus === "PAID" && isDateInCurrentWeek(s.paidAt)
+    );
+
+    const weeklyCollectedRev = weeklyPaidSales.reduce(
       (acc, s) => acc + s.totalAmount,
       0
     );
-    const cash = paidSales
+    const cash = weeklyPaidSales
       .filter((s) => s.paymentMethod === "Cash")
       .reduce((acc, s) => acc + s.totalAmount, 0);
-    const transfer = paidSales
+    const transfer = weeklyPaidSales
       .filter((s) => s.paymentMethod === "Transfer")
       .reduce((acc, s) => acc + s.totalAmount, 0);
-    const pos = paidSales
+    const pos = weeklyPaidSales
       .filter((s) => s.paymentMethod === "POS")
       .reduce((acc, s) => acc + s.totalAmount, 0);
 
-    const repaidCreditTotal = paidSales
+    const repaidCreditTotal = weeklyPaidSales
       .filter((s) => s.isCredit)
       .reduce((acc, s) => acc + s.totalAmount, 0);
 
@@ -207,9 +370,25 @@ export const AuthProvider = ({ children }) => {
       0
     );
 
+    // Weekly Target for current filter
+    let targetTotal = 0;
+    if (effectiveStoreFilter === "ALL") {
+      stores.forEach((st) => {
+        targetTotal += st.weeklyTarget || 0;
+      });
+    } else {
+      const targetStore = stores.find((s) => s.id === effectiveStoreFilter);
+      targetTotal = targetStore?.weeklyTarget || 0;
+    }
+
+    const targetPercentage =
+      targetTotal > 0
+        ? Math.min(100, Math.round((weeklyCollectedRev / targetTotal) * 100))
+        : 0;
+
     return {
       weeklyCollectedRev,
-      paidCount: paidSales.length,
+      paidCount: weeklyPaidSales.length,
       cash,
       transfer,
       pos,
@@ -218,8 +397,16 @@ export const AuthProvider = ({ children }) => {
       unpaidCreditProductCount,
       totalUnits,
       stockValue,
+      targetTotal,
+      targetPercentage,
     };
-  }, [filteredSales, unpaidCreditSales, inventory, effectiveStoreFilter]);
+  }, [
+    filteredSales,
+    unpaidCreditSales,
+    inventory,
+    effectiveStoreFilter,
+    stores,
+  ]);
 
   // Cart Operations
   const addToCart = (invItem) => {
@@ -267,18 +454,20 @@ export const AuthProvider = ({ children }) => {
 
   const cartTotal = cart.reduce((sum, c) => sum + c.price * c.qty, 0);
 
-  // Record Standard or Credit Sale
-  const recordSaleTransaction = ({
+  // 1. Record Sale or Credit Transaction via Atomic RPC
+  const recordSaleTransaction = async ({
     customerName,
     customerPhone,
     paymentMethod,
     paymentRef,
   }) => {
-    if (cart.length === 0) return false;
+    if (cart.length === 0 || !posActiveStoreId) return false;
     const isCreditSale = paymentMethod === "Credit";
 
+    const saleId = `sale-${Date.now()}`;
     const prefix = isCreditSale ? "CRD" : "RCP";
-    const receiptNo = `${prefix}-20261104-${Math.floor(
+    const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const receiptNo = `${prefix}-${datePart}-${Math.floor(
       1000 + Math.random() * 9000
     )}`;
     const storeObj = stores.find((s) => s.id === posActiveStoreId);
@@ -287,11 +476,25 @@ export const AuthProvider = ({ children }) => {
         ? `${sessionUser?.name} (Admin)`
         : sessionUser?.name || "Sales Staff";
 
+    const timestampStr = new Date().toLocaleString("en-NG", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+
+    const itemsPayload = cart.map((c) => ({
+      id: c.id,
+      name: c.name,
+      qty: c.qty,
+      price: c.price,
+      imei: c.imei,
+    }));
+
     const newSaleRecord = {
-      id: `sale-${Date.now()}`,
+      id: saleId,
       receiptNo,
       storeId: posActiveStoreId,
-      storeName: storeObj?.name || "Main Store",
+      storeName: storeObj?.name || "Store",
+      staffId: sessionUser?.id || null,
       staffName: actingPerson,
       customerName: customerName.trim() || "Walk-in Customer",
       customerPhone: customerPhone.trim() || "N/A",
@@ -302,50 +505,46 @@ export const AuthProvider = ({ children }) => {
           : paymentRef.trim() ||
             (isCreditSale ? "Unpaid Credit" : "Verified"),
       totalAmount: cartTotal,
-      timestamp: new Date().toLocaleString("en-NG", {
-        dateStyle: "short",
-        timeStyle: "short",
-      }),
+      timestamp: timestampStr,
       isCredit: isCreditSale,
       creditStatus: isCreditSale ? "UNPAID" : "PAID",
       creditNote: isCreditSale ? paymentRef.trim() : "",
       repaidAt: null,
       repaidBy: null,
-      items: cart.map((c) => ({
-        name: c.name,
-        qty: c.qty,
-        price: c.price,
-        imei: c.imei,
-      })),
+      items: itemsPayload,
     };
 
-    setInventory((prev) =>
-      prev.map((inv) => {
-        const sold = cart.find((c) => c.id === inv.id);
-        return sold
-          ? { ...inv, quantity: Math.max(0, inv.quantity - sold.qty) }
-          : inv;
-      })
-    );
+    const { error } = await supabase.rpc("record_zeedcom_sale", {
+      p_sale_id: newSaleRecord.id,
+      p_receipt_no: newSaleRecord.receiptNo,
+      p_store_id: newSaleRecord.storeId,
+      p_staff_id: newSaleRecord.staffId,
+      p_staff_name: newSaleRecord.staffName,
+      p_customer_name: newSaleRecord.customerName,
+      p_customer_phone: newSaleRecord.customerPhone,
+      p_payment_method: newSaleRecord.paymentMethod,
+      p_payment_ref: newSaleRecord.paymentRef,
+      p_total_amount: newSaleRecord.totalAmount,
+      p_timestamp_label: newSaleRecord.timestamp,
+      p_is_credit: newSaleRecord.isCredit,
+      p_credit_status: newSaleRecord.creditStatus,
+      p_credit_note: newSaleRecord.creditNote,
+      p_items: newSaleRecord.items,
+    });
 
-    if (currentRole === "staff" && sessionUser?.id) {
-      setStaffList((prev) =>
-        prev.map((st) =>
-          st.id === sessionUser.id
-            ? { ...st, salesCount: (st.salesCount || 0) + 1 }
-            : st
-        )
-      );
+    if (error) {
+      alert(error.message || "Failed to record sale.");
+      return false;
     }
 
-    setSales((prev) => [newSaleRecord, ...prev]);
+    await fetchAllSupabaseData();
     setReceiptModalData(newSaleRecord);
     setCart([]);
     return true;
   };
 
-  // Settle Credit Debt & Add to Weekly Sales
-  const settleCreditDebt = (saleToSettle, repayMethod, repayRef) => {
+  // 2. Settle Credit Debt via Atomic RPC (Adds to Current Week's Sales)
+  const settleCreditDebt = async (saleToSettle, repayMethod, repayRef) => {
     const actingPerson =
       currentRole === "admin"
         ? `${sessionUser?.name} (Admin)`
@@ -355,29 +554,191 @@ export const AuthProvider = ({ children }) => {
       timeStyle: "short",
     });
 
-    const updatedSale = {
+    const newPaymentRef =
+      repayMethod === "Cash"
+        ? "Cash (Debt Repaid)"
+        : `${repayRef || "Verified"} (Debt Repaid)`;
+
+    const { error } = await supabase.rpc("settle_zeedcom_credit", {
+      p_sale_id: saleToSettle.id,
+      p_payment_method: repayMethod,
+      p_payment_ref: newPaymentRef,
+      p_repaid_at_label: nowStr,
+      p_repaid_by: actingPerson,
+    });
+
+    if (error) {
+      alert(error.message || "Failed to settle credit debt.");
+      return;
+    }
+
+    await fetchAllSupabaseData();
+    setRepayModalSale(null);
+    setReceiptModalData({
       ...saleToSettle,
       paymentMethod: repayMethod,
-      paymentRef:
-        repayMethod === "Cash"
-          ? "Cash (Debt Repaid)"
-          : `${repayRef || "Verified"} (Debt Repaid)`,
+      paymentRef: newPaymentRef,
       creditStatus: "PAID",
       repaidAt: nowStr,
       repaidBy: actingPerson,
-    };
+    });
+  };
 
-    setSales((prev) =>
-      prev.map((s) => (s.id === saleToSettle.id ? updatedSale : s))
+  // 3. Add or Restock Product
+  const addOrRestockProduct = async (productForm) => {
+    const cleanSku = productForm.sku.trim().toUpperCase();
+    const existingItem = inventory.find(
+      (i) =>
+        i.sku.toUpperCase() === cleanSku && i.storeId === productForm.storeId
     );
-    setRepayModalSale(null);
-    setReceiptModalData(updatedSale);
+
+    if (existingItem) {
+      const { error } = await supabase
+        .from("inventory")
+        .update({
+          name: productForm.name.trim(),
+          category: productForm.category,
+          cost_price: Number(productForm.costPrice),
+          selling_price: Number(productForm.sellingPrice),
+          quantity: existingItem.quantity + Number(productForm.quantity),
+          threshold: Number(productForm.threshold),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingItem.id);
+
+      if (error) {
+        alert(error.message);
+        return false;
+      }
+    } else {
+      const { error } = await supabase.from("inventory").insert({
+        id: `inv-${Date.now()}`,
+        sku: cleanSku,
+        name: productForm.name.trim(),
+        category: productForm.category,
+        store_id: productForm.storeId,
+        cost_price: Number(productForm.costPrice),
+        selling_price: Number(productForm.sellingPrice),
+        quantity: Number(productForm.quantity),
+        threshold: Number(productForm.threshold),
+        track_imei: false,
+      });
+
+      if (error) {
+        alert(error.message);
+        return false;
+      }
+    }
+
+    await fetchAllSupabaseData();
+    return true;
+  };
+
+  // 4. Create Store Branch (with Weekly Target)
+  const createStoreBranch = async (storeForm) => {
+    const newId = `store-${Date.now()}`;
+    const { error } = await supabase.from("stores").insert({
+      id: newId,
+      name: storeForm.name.trim(),
+      location: storeForm.location.trim(),
+      phone: storeForm.phone.trim(),
+      manager: storeForm.manager.trim(),
+      weekly_target: Number(storeForm.weeklyTarget || 500000),
+    });
+
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+
+    if (!posActiveStoreId) {
+      setPosActiveStoreId(newId);
+    }
+    await fetchAllSupabaseData();
+    return true;
+  };
+
+  // 5. Update Store Weekly Target
+  const updateStoreTarget = async (storeId, newTarget) => {
+    const { error } = await supabase
+      .from("stores")
+      .update({ weekly_target: Number(newTarget) })
+      .eq("id", storeId);
+
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+    await fetchAllSupabaseData();
+    return true;
+  };
+
+  // 6. Register New Salesperson Login
+  const registerStaffMember = async (staffForm) => {
+    const { error } = await supabase.from("staff_users").insert({
+      id: `stf-${Date.now()}`,
+      name: staffForm.name.trim(),
+      email: staffForm.email.trim().toLowerCase(),
+      password: staffForm.password,
+      role: "staff",
+      store_id: staffForm.storeId,
+      active: true,
+      sales_count: 0,
+    });
+
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+    await fetchAllSupabaseData();
+    return true;
+  };
+
+  // 7. Freeze / Unfreeze Staff Login
+  const toggleStaffStatus = async (staffId, currentActive) => {
+    const { error } = await supabase
+      .from("staff_users")
+      .update({ active: !currentActive })
+      .eq("id", staffId);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    await fetchAllSupabaseData();
+  };
+
+  // 8. Create & Delete Stock Categories
+  const createCategory = async (catName) => {
+    const clean = catName.trim();
+    if (!clean) return false;
+    const { error } = await supabase.from("categories").insert({ name: clean });
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+    await fetchAllSupabaseData();
+    return true;
+  };
+
+  const deleteCategory = async (catName) => {
+    const { error } = await supabase
+      .from("categories")
+      .delete()
+      .eq("name", catName);
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+    await fetchAllSupabaseData();
+    return true;
   };
 
   return (
     <AuthContext.Provider
       value={{
         isLoggedIn,
+        dbLoading,
         sessionUser,
         login,
         logout,
@@ -386,12 +747,9 @@ export const AuthProvider = ({ children }) => {
         setActivePage,
         adminWaNumber,
         stores,
-        setStores,
         categories,
         staffList,
-        setStaffList,
         inventory,
-        setInventory,
         sales,
         selectedStoreFilter,
         setSelectedStoreFilter,
@@ -404,6 +762,7 @@ export const AuthProvider = ({ children }) => {
         filteredSales,
         unpaidCreditSales,
         posStoreUnpaidCredits,
+        storeTargetMetrics,
         kpis,
         cart,
         setCart,
@@ -413,6 +772,13 @@ export const AuthProvider = ({ children }) => {
         cartTotal,
         recordSaleTransaction,
         settleCreditDebt,
+        addOrRestockProduct,
+        createStoreBranch,
+        updateStoreTarget,
+        registerStaffMember,
+        toggleStaffStatus,
+        createCategory,
+        deleteCategory,
         receiptModalData,
         setReceiptModalData,
         repayModalSale,
@@ -423,6 +789,10 @@ export const AuthProvider = ({ children }) => {
         setShowStoreModal,
         showStaffModal,
         setShowStaffModal,
+        showCategoryModal,
+        setShowCategoryModal,
+        showTargetModal,
+        setShowTargetModal,
       }}
     >
       {children}
