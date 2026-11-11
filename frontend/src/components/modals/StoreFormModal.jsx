@@ -3,7 +3,12 @@ import { X } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 export default function StoreFormModal() {
-  const { showStoreModal, setShowStoreModal, createStoreBranch } = useAuth();
+  const {
+    showStoreModal,
+    setShowStoreModal,
+    createStoreBranch,
+    requestConfirm,
+  } = useAuth();
   const [newStore, setNewStore] = useState({
     name: "",
     location: "",
@@ -11,25 +16,36 @@ export default function StoreFormModal() {
     manager: "",
     weeklyTarget: "",
   });
-  const [saving, setSaving] = useState(false);
 
   if (!showStoreModal) return null;
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setSaving(true);
-    const ok = await createStoreBranch(newStore);
-    setSaving(false);
-    if (ok) {
-      setShowStoreModal(false);
-      setNewStore({
-        name: "",
-        location: "",
-        phone: "",
-        manager: "",
-        weeklyTarget: "",
-      });
-    }
+    requestConfirm({
+      title: "Confirm Store Creation",
+      message: `Create store branch "${newStore.name}"${
+        newStore.weeklyTarget
+          ? ` with a weekly target of ₦${Number(
+              newStore.weeklyTarget
+            ).toLocaleString()}`
+          : " (no weekly target set yet)"
+      }?`,
+      confirmText: "Yes, Create Store",
+      variant: "primary",
+      onConfirm: async () => {
+        const ok = await createStoreBranch(newStore);
+        if (ok) {
+          setShowStoreModal(false);
+          setNewStore({
+            name: "",
+            location: "",
+            phone: "",
+            manager: "",
+            weeklyTarget: "",
+          });
+        }
+      },
+    });
   };
 
   return (
@@ -48,14 +64,14 @@ export default function StoreFormModal() {
         </div>
         <input
           required
-          placeholder="Store Branch Name (e.g. Store 1: Challenge HQ)"
+          placeholder="Store Branch Name (e.g. Store 1: Challenge HQ) *"
           value={newStore.name}
           onChange={(e) => setNewStore({ ...newStore, name: e.target.value })}
           className="w-full px-3 py-2.5 border border-[#9E9E9E]/30 rounded-xl"
         />
         <input
           required
-          placeholder="Physical Address"
+          placeholder="Physical Address *"
           value={newStore.location}
           onChange={(e) =>
             setNewStore({ ...newStore, location: e.target.value })
@@ -64,36 +80,39 @@ export default function StoreFormModal() {
         />
         <input
           required
-          placeholder="Store Phone Number"
+          placeholder="Store Phone Number *"
           value={newStore.phone}
           onChange={(e) => setNewStore({ ...newStore, phone: e.target.value })}
           className="w-full px-3 py-2.5 border border-[#9E9E9E]/30 rounded-xl"
         />
         <input
           required
-          placeholder="Branch Manager Name"
+          placeholder="Branch Manager Name *"
           value={newStore.manager}
           onChange={(e) =>
             setNewStore({ ...newStore, manager: e.target.value })
           }
           className="w-full px-3 py-2.5 border border-[#9E9E9E]/30 rounded-xl"
         />
-        <input
-          required
-          type="number"
-          placeholder="Weekly Sales Target in ₦ (e.g. 500000)"
-          value={newStore.weeklyTarget}
-          onChange={(e) =>
-            setNewStore({ ...newStore, weeklyTarget: e.target.value })
-          }
-          className="w-full px-3 py-2.5 border border-[#344ABF] rounded-xl font-bold"
-        />
+        <div>
+          <label className="text-[10px] font-bold uppercase text-[#9E9E9E] block mb-1">
+            Weekly Sales Target in ₦ (Optional — Can be set later)
+          </label>
+          <input
+            type="number"
+            placeholder="Leave blank to set later (e.g. 500000)"
+            value={newStore.weeklyTarget}
+            onChange={(e) =>
+              setNewStore({ ...newStore, weeklyTarget: e.target.value })
+            }
+            className="w-full px-3 py-2.5 border border-[#9E9E9E]/30 rounded-xl font-bold"
+          />
+        </div>
         <button
           type="submit"
-          disabled={saving}
-          className="w-full py-3 bg-[#212121] disabled:opacity-50 text-[#FFFFFF] font-black rounded-xl"
+          className="w-full py-3 bg-[#212121] text-[#FFFFFF] font-black rounded-xl"
         >
-          {saving ? "Creating Store..." : "Create Store Branch"}
+          Create Store Branch
         </button>
       </form>
     </div>

@@ -23,6 +23,7 @@ export default function POSTerminal() {
     updateCartImei,
     cartTotal,
     recordSaleTransaction,
+    requestConfirm,
   } = useAuth();
 
   const [posSearch, setPosSearch] = useState("");
@@ -40,34 +41,48 @@ export default function POSTerminal() {
     percentage: 0,
   };
 
-  const handleCompleteSale = async (e) => {
-    e.preventDefault();
-    if (
-      paymentMethod === "Credit" &&
-      (!customerName.trim() || !customerPhone.trim())
-    ) {
-      alert(
-        "Customer Name and Phone Number are required when selling on Credit!"
-      );
-      return;
-    }
+const handleCompleteSale = (e) => {
+  e.preventDefault();
+  if (
+    paymentMethod === "Credit" &&
+    (!customerName.trim() || !customerPhone.trim())
+  ) {
+    alert(
+      "Customer Name and Phone Number are required when selling on Credit!"
+    );
+    return;
+  }
 
-    setSubmitting(true);
-    const ok = await recordSaleTransaction({
-      customerName,
-      customerPhone,
-      paymentMethod,
-      paymentRef,
-    });
-    setSubmitting(false);
+  requestConfirm({
+    title:
+      paymentMethod === "Credit"
+        ? "Confirm Credit Sale"
+        : "Confirm Customer Checkout",
+    message: `Record ${paymentMethod} sale of ${formatNaira(cartTotal)} (${cart.reduce(
+      (a, b) => a + b.qty,
+      0
+    )} items) for ${customerName.trim() || "Walk-in Customer"}?`,
+    confirmText: "Yes, Complete Sale",
+    variant: paymentMethod === "Credit" ? "warning" : "primary",
+    onConfirm: async () => {
+      setSubmitting(true);
+      const ok = await recordSaleTransaction({
+        customerName,
+        customerPhone,
+        paymentMethod,
+        paymentRef,
+      });
+      setSubmitting(false);
 
-    if (ok) {
-      setCustomerName("");
-      setCustomerPhone("");
-      setPaymentRef("");
-      setMobileCartOpen(false);
-    }
-  };
+      if (ok) {
+        setCustomerName("");
+        setCustomerPhone("");
+        setPaymentRef("");
+        setMobileCartOpen(false);
+      }
+    },
+  });
+};
 
   const storeProducts = inventory
     .filter((i) => i.storeId === posActiveStoreId)

@@ -29,6 +29,7 @@ export default function AdminDashboard() {
     setActivePage,
     setRepayModalSale,
     setReceiptModalData,
+    setRefundModalSale,
     setShowTargetModal,
     setShowStoreModal,
   } = useAuth();
@@ -62,9 +63,7 @@ export default function AdminDashboard() {
               onChange={(e) => setSelectedStoreFilter(e.target.value)}
               className="text-xs sm:text-sm font-black text-[#212121] bg-transparent focus:outline-none cursor-pointer"
             >
-              <option value="ALL">
-                All Stores Combined ({stores.length})
-              </option>
+              <option value="ALL">All Stores Combined ({stores.length})</option>
               {stores.map((st) => (
                 <option key={st.id} value={st.id}>
                   {st.name}
@@ -238,15 +237,15 @@ export default function AdminDashboard() {
               const stUnits = stInv.reduce((a, b) => a + b.quantity, 0);
               const stVal = stInv.reduce(
                 (a, b) => a + b.quantity * b.sellingPrice,
-                0
+                0,
               );
               const stUnpaidCredit = sales
                 .filter(
-                  (s) => s.storeId === st.id && s.creditStatus === "UNPAID"
+                  (s) => s.storeId === st.id && s.creditStatus === "UNPAID",
                 )
                 .reduce((a, b) => a + b.totalAmount, 0);
               const stLow = stInv.filter(
-                (i) => i.quantity <= i.threshold
+                (i) => i.quantity <= i.threshold,
               ).length;
               const targetInfo = storeTargetMetrics[st.id] || {
                 collected: 0,
@@ -445,12 +444,23 @@ export default function AdminDashboard() {
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       <div className="flex items-center justify-center gap-1.5">
-                        {sale.creditStatus === "UNPAID" && (
+                        {sale.creditStatus === "UNPAID" &&
+                          sale.totalAmount > 0 && (
+                            <button
+                              onClick={() => setRepayModalSale(sale)}
+                              className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-[#212121] rounded-lg font-black text-[11px]"
+                            >
+                              Settle Debt
+                            </button>
+                          )}
+                        {(sale.items || []).some(
+                          (it) => it.qty - (it.refundedQty || 0) > 0,
+                        ) && (
                           <button
-                            onClick={() => setRepayModalSale(sale)}
-                            className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-[#212121] rounded-lg font-black text-[11px]"
+                            onClick={() => setRefundModalSale(sale)}
+                            className="px-2.5 py-1.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-[#FFFFFF] rounded-lg font-bold text-[11px] transition"
                           >
-                            Settle Debt
+                            Refund
                           </button>
                         )}
                         <button

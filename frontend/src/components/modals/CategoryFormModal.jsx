@@ -9,19 +9,39 @@ export default function CategoryFormModal() {
     setShowCategoryModal,
     createCategory,
     deleteCategory,
+    requestConfirm,
   } = useAuth();
   const [newCat, setNewCat] = useState("");
-  const [loading, setLoading] = useState(false);
 
   if (!showCategoryModal) return null;
 
-  const handleAdd = async (e) => {
+  const handleAdd = (e) => {
     e.preventDefault();
-    if (!newCat.trim()) return;
-    setLoading(true);
-    const ok = await createCategory(newCat);
-    setLoading(false);
-    if (ok) setNewCat("");
+    const clean = newCat.trim();
+    if (!clean) return;
+
+    requestConfirm({
+      title: "Confirm New Category",
+      message: `Are you sure you want to add "${clean}" as a stock category?`,
+      confirmText: "Yes, Add Category",
+      variant: "primary",
+      onConfirm: async () => {
+        const ok = await createCategory(clean);
+        if (ok) setNewCat("");
+      },
+    });
+  };
+
+  const handleDelete = (catName) => {
+    requestConfirm({
+      title: "Delete Stock Category",
+      message: `Are you sure you want to delete the category "${catName}"?`,
+      confirmText: "Yes, Delete Category",
+      variant: "danger",
+      onConfirm: async () => {
+        await deleteCategory(catName);
+      },
+    });
   };
 
   return (
@@ -49,7 +69,6 @@ export default function CategoryFormModal() {
           />
           <button
             type="submit"
-            disabled={loading}
             className="px-4 py-2.5 bg-[#344ABF] text-[#FFFFFF] font-black rounded-xl inline-flex items-center gap-1"
           >
             <Plus className="w-4 h-4" />
@@ -71,7 +90,7 @@ export default function CategoryFormModal() {
                 <span className="font-bold text-[#212121]">{cat}</span>
                 <button
                   type="button"
-                  onClick={() => deleteCategory(cat)}
+                  onClick={() => handleDelete(cat)}
                   className="text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition"
                   title="Delete Category"
                 >

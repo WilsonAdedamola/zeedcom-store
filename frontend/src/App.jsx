@@ -5,6 +5,8 @@ import MobileHeader from "./components/layout/MobileHeader";
 import MobileBottomNav from "./components/layout/MobileBottomNav";
 import ReceiptWhatsAppModal from "./components/modals/ReceiptWhatsAppModal";
 import RepayDebtModal from "./components/modals/RepayDebtModal";
+import RefundModal from "./components/modals/RefundModal";
+import ConfirmActionModal from "./components/modals/ConfirmActionModal";
 import ProductFormModal from "./components/modals/ProductFormModal";
 import StoreFormModal from "./components/modals/StoreFormModal";
 import StaffFormModal from "./components/modals/StaffFormModal";
@@ -24,7 +26,7 @@ function AppShell() {
   if (dbLoading) {
     return (
       <div className="min-h-screen bg-[#212121] text-[#FFFFFF] flex items-center justify-center font-black text-sm">
-        Connecting to Zeedcom Stores Database...
+        Connecting to Zeedcom Stores...
       </div>
     );
   }
@@ -58,11 +60,13 @@ function AppShell() {
       {/* Global Interactive Modals */}
       <ReceiptWhatsAppModal />
       <RepayDebtModal />
+      <RefundModal />
       <ProductFormModal />
       <StoreFormModal />
       <StaffFormModal />
       <CategoryFormModal />
       <TargetFormModal />
+      <ConfirmActionModal />
     </div>
   );
 }

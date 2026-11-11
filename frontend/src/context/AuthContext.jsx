@@ -10,14 +10,15 @@ import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 
 const AuthContext = createContext({});
 
-// Helper: Checks if a timestamp falls within the current week (Monday 00:00 to Sunday 23:59)
+const INACTIVITY_LIMIT_MS = 60 * 60 * 1000; // 1 Hour (3,600,000 ms)
+
 const isDateInCurrentWeek = (isoDateString) => {
   if (!isoDateString) return true;
   const date = new Date(isoDateString);
   if (isNaN(date.getTime())) return true;
 
   const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 (Sun) to 6 (Sat)
+  const dayOfWeek = now.getDay();
   const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
 
   const startOfWeek = new Date(now);
@@ -82,7 +83,6 @@ const mapSaleRow = (r) => ({
 });
 
 export const AuthProvider = ({ children }) => {
-  // Pure Database State (Starts empty, populated by Supabase)
   const [stores, setStores] = useState([]);
   const [categories, setCategories] = useState([]);
   const [staffList, setStaffList] = useState([]);
@@ -93,6 +93,12 @@ export const AuthProvider = ({ children }) => {
   const [sessionUser, setSessionUser] = useState(() => {
     try {
       const saved = localStorage.getItem("zeed_session");
+      const lastAct = Number(localStorage.getItem("zeed_last_activity") || 0);
+      if (saved && lastAct && Date.now() - lastAct > INACTIVITY_LIMIT_MS) {
+        localStorage.removeItem("zeed_session");
+        localStorage.removeItem("zeed_last_activity");
+        return null;
+      }
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -115,11 +121,68 @@ export const AuthProvider = ({ children }) => {
   // Modals State
   const [receiptModalData, setReceiptModalData] = useState(null);
   const [repayModalSale, setRepayModalSale] = useState(null);
+  const [refundModalSale, setRefundModalSale] = useState(null);
+  const [confirmModalData, setConfirmModalData] = useState(null);
   const [showProductModal, setShowProductModal] = useState(false);
   const [showStoreModal, setShowStoreModal] = useState(false);
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showTargetModal, setShowTargetModal] = useState(false);
+
+  const logout = useCallback(() => {
+    setSessionUser(null);
+    setCart([]);
+    setConfirmModalData(null);
+    setRefundModalSale(null);
+    localStorage.removeItem("zeed_session");
+    localStorage.removeItem("zeed_last_activity");
+    setActivePage("pos");
+  }, []);
+
+  // 1-Hour Inactivity Auto-Logout Watcher
+  useEffect(() => {
+    if (!sessionUser) return;
+
+    const updateActivity = () => {
+      localStorage.setItem("zeed_last_activity", String(Date.now()));
+    };
+
+    updateActivity();
+
+    const events = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "touchstart",
+      "scroll",
+      "click",
+    ];
+    events.forEach((ev) =>
+      window.addEventListener(ev, updateActivity, { passive: true })
+    );
+
+    const interval = setInterval(() => {
+      const lastAct = Number(
+        localStorage.getItem("zeed_last_activity") || Date.now()
+      );
+      if (Date.now() - lastAct >= INACTIVITY_LIMIT_MS) {
+        logout();
+        alert(
+          "Session Expired: You have been logged out due to 1 hour of inactivity."
+        );
+      }
+    }, 30000); // Checks every 30 seconds
+
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, updateActivity));
+      clearInterval(interval);
+    };
+  }, [sessionUser, logout]);
+
+  // Helper to open global confirmation modal
+  const requestConfirm = useCallback((config) => {
+    setConfirmModalData(config);
+  }, []);
 
   const fetchAllSupabaseData = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase) {
@@ -135,17 +198,31 @@ export const AuthProvider = ({ children }) => {
         { data: invData },
         { data: salesData },
       ] = await Promise.all([
-        supabase.from("stores").select("*").order("created_at", { ascending: true }),
-        supabase.from("categories").select("*").order("id", { ascending: true }),
-        supabase.from("staff_users").select("*").order("created_at", { ascending: true }),
-        supabase.from("inventory").select("*").order("updated_at", { ascending: false }),
-        supabase.from("sales").select("*").order("created_at", { ascending: false }),
+        supabase
+          .from("stores")
+          .select("*")
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("categories")
+          .select("*")
+          .order("id", { ascending: true }),
+        supabase
+          .from("staff_users")
+          .select("*")
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("inventory")
+          .select("*")
+          .order("updated_at", { ascending: false }),
+        supabase
+          .from("sales")
+          .select("*")
+          .order("created_at", { ascending: false }),
       ]);
 
       const mappedStores = (storesData || []).map(mapStoreRow);
       setStores(mappedStores);
 
-      // Ensure POS has a valid active store selected for Admin
       if (mappedStores.length > 0 && !posActiveStoreId) {
         setPosActiveStoreId(
           sessionUser?.role === "staff"
@@ -161,12 +238,10 @@ export const AuthProvider = ({ children }) => {
         .map(mapStaffRow);
       setStaffList(mappedStaff);
 
-      // Auto-terminate session if Admin freezes or deletes a logged-in staff account
       if (sessionUser?.role === "staff") {
         const currentInDb = mappedStaff.find((u) => u.id === sessionUser.id);
         if (!currentInDb || !currentInDb.active) {
-          setSessionUser(null);
-          localStorage.removeItem("zeed_session");
+          logout();
           alert("Your session has been deactivated by the Administrator.");
         }
       }
@@ -178,7 +253,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setDbLoading(false);
     }
-  }, [posActiveStoreId, sessionUser]);
+  }, [posActiveStoreId, sessionUser, logout]);
 
   useEffect(() => {
     fetchAllSupabaseData();
@@ -212,7 +287,6 @@ export const AuthProvider = ({ children }) => {
   const getStoreName = (storeId) =>
     stores.find((s) => s.id === storeId)?.name || "Unassigned Store";
 
-  // Production Login (Strictly against Supabase staff_users table)
   const login = async (email, password, loginTabRole) => {
     if (!isSupabaseConfigured || !supabase) {
       return {
@@ -248,6 +322,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     const mappedUser = mapStaffRow(userRow);
+    localStorage.setItem("zeed_last_activity", String(Date.now()));
     setSessionUser(mappedUser);
 
     if (mappedUser.role === "admin") {
@@ -261,12 +336,6 @@ export const AuthProvider = ({ children }) => {
     }
 
     return { success: true };
-  };
-
-  const logout = () => {
-    setSessionUser(null);
-    setCart([]);
-    setActivePage("pos");
   };
 
   const effectiveStoreFilter =
@@ -288,16 +357,20 @@ export const AuthProvider = ({ children }) => {
   }, [sales, effectiveStoreFilter]);
 
   const unpaidCreditSales = useMemo(() => {
-    return filteredSales.filter((s) => s.creditStatus === "UNPAID");
+    return filteredSales.filter(
+      (s) => s.creditStatus === "UNPAID" && s.totalAmount > 0
+    );
   }, [filteredSales]);
 
   const posStoreUnpaidCredits = useMemo(() => {
     return sales.filter(
-      (s) => s.storeId === posActiveStoreId && s.creditStatus === "UNPAID"
+      (s) =>
+        s.storeId === posActiveStoreId &&
+        s.creditStatus === "UNPAID" &&
+        s.totalAmount > 0
     );
   }, [sales, posActiveStoreId]);
 
-  // Per-Store Weekly Target Progress (Used on both Admin Cards & POS Terminal Header)
   const storeTargetMetrics = useMemo(() => {
     const map = {};
     stores.forEach((st) => {
@@ -326,7 +399,6 @@ export const AuthProvider = ({ children }) => {
     return map;
   }, [stores, sales]);
 
-  // Dashboard & Store KPIs (Calculated for the Current Week)
   const kpis = useMemo(() => {
     const weeklyPaidSales = filteredSales.filter(
       (s) => s.creditStatus === "PAID" && isDateInCurrentWeek(s.paidAt)
@@ -356,7 +428,12 @@ export const AuthProvider = ({ children }) => {
     );
     const unpaidCreditProductCount = unpaidCreditSales.reduce(
       (acc, s) =>
-        acc + s.items.reduce((itemSum, it) => itemSum + it.qty, 0),
+        acc +
+        s.items.reduce(
+          (itemSum, it) =>
+            itemSum + Math.max(0, it.qty - (it.refundedQty || 0)),
+          0
+        ),
       0
     );
 
@@ -370,7 +447,6 @@ export const AuthProvider = ({ children }) => {
       0
     );
 
-    // Weekly Target for current filter
     let targetTotal = 0;
     if (effectiveStoreFilter === "ALL") {
       stores.forEach((st) => {
@@ -388,7 +464,7 @@ export const AuthProvider = ({ children }) => {
 
     return {
       weeklyCollectedRev,
-      paidCount: weeklyPaidSales.length,
+      paidCount: weeklyPaidSales.filter((s) => s.totalAmount > 0).length,
       cash,
       transfer,
       pos,
@@ -454,7 +530,7 @@ export const AuthProvider = ({ children }) => {
 
   const cartTotal = cart.reduce((sum, c) => sum + c.price * c.qty, 0);
 
-  // 1. Record Sale or Credit Transaction via Atomic RPC
+  // 1. Record Sale or Credit Transaction
   const recordSaleTransaction = async ({
     customerName,
     customerPhone,
@@ -485,6 +561,7 @@ export const AuthProvider = ({ children }) => {
       id: c.id,
       name: c.name,
       qty: c.qty,
+      refundedQty: 0,
       price: c.price,
       imei: c.imei,
     }));
@@ -543,7 +620,79 @@ export const AuthProvider = ({ children }) => {
     return true;
   };
 
-  // 2. Settle Credit Debt via Atomic RPC (Adds to Current Week's Sales)
+  // 2. Process Refund (Deducts from Total Sales & Optionally Restocks Inventory)
+  const processSaleRefund = async ({
+    sale,
+    itemIndex,
+    refundQty,
+    restock,
+    reason,
+  }) => {
+    const targetItem = sale.items[itemIndex];
+    if (!targetItem) return false;
+
+    const refundAmount = Number(targetItem.price) * Number(refundQty);
+    const newTotalAmount = Math.max(0, Number(sale.totalAmount) - refundAmount);
+
+    const updatedItems = sale.items.map((it, idx) => {
+      if (idx !== itemIndex) return it;
+      return {
+        ...it,
+        refundedQty: (it.refundedQty || 0) + Number(refundQty),
+        refundReason: reason,
+        restocked: restock,
+      };
+    });
+
+    const refundTag = `[REFUNDED ${refundQty}x ${targetItem.name} (${
+      restock ? "Restocked" : "Bad/No-Restock"
+    })]`;
+    const updatedRef = sale.paymentRef.includes(refundTag)
+      ? sale.paymentRef
+      : `${sale.paymentRef} • ${refundTag}`;
+
+    // A. If Admin chose "Return to Previous Quantity", increment stock in Supabase
+    if (restock && targetItem.id) {
+      const currentInv = inventory.find((i) => i.id === targetItem.id);
+      if (currentInv) {
+        const { error: invErr } = await supabase
+          .from("inventory")
+          .update({
+            quantity: currentInv.quantity + Number(refundQty),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", currentInv.id);
+
+        if (invErr) {
+          alert(
+            "Failed to return stock quantity: " + (invErr.message || "Error")
+          );
+          return false;
+        }
+      }
+    }
+
+    // B. Deduct refunded amount from sale total_amount in Supabase
+    const { error: saleErr } = await supabase
+      .from("sales")
+      .update({
+        total_amount: newTotalAmount,
+        payment_ref: updatedRef,
+        items: updatedItems,
+      })
+      .eq("id", sale.id);
+
+    if (saleErr) {
+      alert("Failed to update sale refund: " + (saleErr.message || "Error"));
+      return false;
+    }
+
+    setRefundModalSale(null);
+    await fetchAllSupabaseData();
+    return true;
+  };
+
+  // 3. Settle Credit Debt
   const settleCreditDebt = async (saleToSettle, repayMethod, repayRef) => {
     const actingPerson =
       currentRole === "admin"
@@ -584,7 +733,7 @@ export const AuthProvider = ({ children }) => {
     });
   };
 
-  // 3. Add or Restock Product
+  // 4. Add or Restock Product
   const addOrRestockProduct = async (productForm) => {
     const cleanSku = productForm.sku.trim().toUpperCase();
     const existingItem = inventory.find(
@@ -634,16 +783,35 @@ export const AuthProvider = ({ children }) => {
     return true;
   };
 
-  // 4. Create Store Branch (with Weekly Target)
+  // 5. Delete Product from Inventory
+  const deleteProduct = async (productId) => {
+    const { error } = await supabase
+      .from("inventory")
+      .delete()
+      .eq("id", productId);
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+    setCart((prev) => prev.filter((c) => c.id !== productId));
+    await fetchAllSupabaseData();
+    return true;
+  };
+
+  // 6. Create Store Branch (Weekly Target is Optional — defaults to 0)
   const createStoreBranch = async (storeForm) => {
     const newId = `store-${Date.now()}`;
+    const parsedTarget = storeForm.weeklyTarget
+      ? Number(storeForm.weeklyTarget)
+      : 0;
+
     const { error } = await supabase.from("stores").insert({
       id: newId,
       name: storeForm.name.trim(),
       location: storeForm.location.trim(),
       phone: storeForm.phone.trim(),
       manager: storeForm.manager.trim(),
-      weekly_target: Number(storeForm.weeklyTarget || 500000),
+      weekly_target: parsedTarget,
     });
 
     if (error) {
@@ -658,11 +826,27 @@ export const AuthProvider = ({ children }) => {
     return true;
   };
 
-  // 5. Update Store Weekly Target
+  // 7. Delete Store Branch
+  const deleteStoreBranch = async (storeId) => {
+    const { error } = await supabase.from("stores").delete().eq("id", storeId);
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+    if (selectedStoreFilter === storeId) setSelectedStoreFilter("ALL");
+    if (posActiveStoreId === storeId) {
+      const remaining = stores.filter((s) => s.id !== storeId);
+      setPosActiveStoreId(remaining[0]?.id || "");
+    }
+    await fetchAllSupabaseData();
+    return true;
+  };
+
+  // 8. Update Store Weekly Target
   const updateStoreTarget = async (storeId, newTarget) => {
     const { error } = await supabase
       .from("stores")
-      .update({ weekly_target: Number(newTarget) })
+      .update({ weekly_target: Number(newTarget || 0) })
       .eq("id", storeId);
 
     if (error) {
@@ -673,7 +857,7 @@ export const AuthProvider = ({ children }) => {
     return true;
   };
 
-  // 6. Register New Salesperson Login
+  // 9. Register & Delete Sales Staff
   const registerStaffMember = async (staffForm) => {
     const { error } = await supabase.from("staff_users").insert({
       id: `stf-${Date.now()}`,
@@ -694,7 +878,19 @@ export const AuthProvider = ({ children }) => {
     return true;
   };
 
-  // 7. Freeze / Unfreeze Staff Login
+  const deleteStaffMember = async (staffId) => {
+    const { error } = await supabase
+      .from("staff_users")
+      .delete()
+      .eq("id", staffId);
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+    await fetchAllSupabaseData();
+    return true;
+  };
+
   const toggleStaffStatus = async (staffId, currentActive) => {
     const { error } = await supabase
       .from("staff_users")
@@ -708,7 +904,7 @@ export const AuthProvider = ({ children }) => {
     await fetchAllSupabaseData();
   };
 
-  // 8. Create & Delete Stock Categories
+  // 10. Create & Delete Stock Categories
   const createCategory = async (catName) => {
     const clean = catName.trim();
     if (!clean) return false;
@@ -771,18 +967,27 @@ export const AuthProvider = ({ children }) => {
         updateCartImei,
         cartTotal,
         recordSaleTransaction,
+        processSaleRefund,
         settleCreditDebt,
         addOrRestockProduct,
+        deleteProduct,
         createStoreBranch,
+        deleteStoreBranch,
         updateStoreTarget,
         registerStaffMember,
+        deleteStaffMember,
         toggleStaffStatus,
         createCategory,
         deleteCategory,
+        requestConfirm,
+        confirmModalData,
+        setConfirmModalData,
         receiptModalData,
         setReceiptModalData,
         repayModalSale,
         setRepayModalSale,
+        refundModalSale,
+        setRefundModalSale,
         showProductModal,
         setShowProductModal,
         showStoreModal,
